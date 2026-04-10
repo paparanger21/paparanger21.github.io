@@ -1,0 +1,58 @@
+name: Update Posts
+on:
+schedule:
+- cron: '0 * * * *' # 매 1시간마다 자동 실행
+workflow_dispatch: # Actions 탭에서 수동 실행도 가능
+jobs:
+update:
+runs-on: ubuntu-latest
+permissions:
+contents: write
+steps:
+- uses: actions/checkout@v4
+- name: Fetch Naver RSS and save posts.json
+run: |
+curl -s "https://rss.blog.naver.com/spapa_21" \
+-H "User-Agent: Mozilla/5.0 (compatible; RSS Reader)" \
+-o rss.xml
+python3 - <<'EOF'
+import xml.etree.ElementTree as ET
+import json
+tree = ET.parse('rss.xml')
+root = tree.getroot()
+channel = root.find('channel')
+all_items = channel.findall('item')
+def get_text(el, tag):
+node = el.find(tag)
+if node is None:
+return ''
+return (node.text or '').strip()
+def format_date(s):
+from email.utils import parsedate
+from datetime import datetime
+try:
+t = parsedate(s)
+d = datetime(*t[:3])
+return d.strftime('%Y.%m.%d')
+except:
+return s[:10] if s else ''
+items = []
+for item in all_items[:3]:
+title = get_text(item, 'title')
+link = get_text(item, 'link')
+if not link:
+link = get_text(item, 'guid')
+pub = get_text(item, 'pubDate')
+items.append({'title': title, 'link': link, 'pubDate': format_date(pub)})
+
+result = {'items': items, 'total': len(all_items)}
+with open('posts.json', 'w', encoding='utf-8') as f:
+json.dump(result, f, ensure_ascii=False, indent=2)
+EOF
+- name: Commit and push
+run: |
+git config user.name "github-actions"
+git config user.email "github-actions@github.com"
+git add posts.json
+git diff --staged --quiet || git commit -m "Update posts"
+git push
